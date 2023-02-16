@@ -61,14 +61,14 @@ resource "aws_route_table" "myPrivateRt" {
 
 resource "aws_route_table_association" "publicRtAssoc" {
   count          = 3
-  subnet_id      = aws_subnet.public[count.index].id
-  route_table_id = aws_route_table.public.id
+  subnet_id      = aws_subnet.myPublicSubnet[count.index].id
+  route_table_id = aws_route_table.myPublicRt.id
 }
 
 resource "aws_route_table_association" "privateRtAssoc" {
   count          = 3
-  subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
+  subnet_id      = aws_subnet.myPrivateSubnet[count.index].id
+  route_table_id = aws_route_table.myPrivateRt.id
 }
 
 data "aws_availability_zones" "available" {}
