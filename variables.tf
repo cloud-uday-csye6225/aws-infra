@@ -27,3 +27,19 @@ variable "wsg_protocol" {
   type    = string
   default = "tcp"
 }
+variable "mysql_db_ver" {
+  type = string
+  default = "8.0"
+}
+variable "db_name" {
+  type    = string
+  default = "csyedb"
+}
+variable "db_username" {
+  type    = string
+  default = "csyeroot"
+}
+variable "db_pwd" {
+  type    = string
+  default = "csyeroot@12345"
+}
