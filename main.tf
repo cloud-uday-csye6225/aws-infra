@@ -122,7 +122,6 @@ resource "aws_security_group" "application" {
   }
 }
 
-
 resource "aws_instance" "my_ami" {
   ami                         = var.ami_id
   instance_type               = var.instance_type
@@ -139,6 +138,27 @@ resource "aws_instance" "my_ami" {
     volume_size           = 50
     volume_type           = "gp2"
   }
+  iam_instance_profile = aws_iam_instance_profile.iam_profile.name
+
+  user_data = <<EOF
+#!/bin/bash
+cd /home/ec2-user || return
+touch application.properties
+echo "aws.region=${var.aws_region}" >> application.properties
+echo "aws.s3.bucket=${aws_s3_bucket.bucket.bucket}" >> application.properties
+
+echo "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver" >> application.properties
+echo "spring.datasource.jdbc-url=jdbc:mysql://${aws_db_instance.db_instance.endpoint}/${aws_db_instance.db_instance.db_name}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> application.properties
+echo "spring.datasource.username=${aws_db_instance.db_instance.username}" >> application.properties
+echo "spring.datasource.password=${aws_db_instance.db_instance.password}" >> application.properties
+
+echo "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect" >> application.properties
+echo "spring.jpa.database=mysql" >> application.properties
+echo "spring.jpa.show-sql=true" >> application.properties
+echo "spring.jpa.hibernate.ddl-auto=update" >> application.properties
+echo "server.port=8082" >> application.properties
+  EOF
+
   tags = {
     Name = "my-${var.name_prefix}-ami"
   }
@@ -158,43 +178,33 @@ resource "aws_security_group" "db_security_group" {
     protocol        = var.wsg_protocol
     security_groups = [aws_security_group.application.id]
   }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = [var.security_cidr]
-  }
-
   tags = {
     Name = "database"
   }
 }
 
 resource "random_string" "random" {
-  length           = 5
-  special          = false
+  length  = 5
+  special = false
 }
 
 // Create s3 bucket
 resource "aws_s3_bucket" "bucket" {
   bucket        = "${random_string.random.result}-s3-udaykk-${var.name_prefix}"
-  acl           = "private"
   force_destroy = true
-
-
-  server_side_encryption_configuration {
-    rule {
-      apply_server_side_encryption_by_default {
-        sse_algorithm = "AES256"
-      }
-    }
+  tags = {
+    Name = "${random_string.random.id}"
   }
-
-  lifecycle_rule {
-    id      = "archive"
-    enabled = true
-    prefix  = "s3archive/"
+}
+resource "aws_s3_bucket_acl" "s3b_acl" {
+  bucket = aws_s3_bucket.bucket.id
+  acl    = "private"
+}
+resource "aws_s3_bucket_lifecycle_configuration" "s3b_lifecycle" {
+  bucket = aws_s3_bucket.bucket.id
+  rule {
+    id     = "rule-1"
+    status = "Enabled"
 
     transition {
       days          = 30
@@ -203,9 +213,18 @@ resource "aws_s3_bucket" "bucket" {
   }
 }
 
-resource "aws_s3_bucket_public_access_block" "s3_block" {
+resource "aws_s3_bucket_server_side_encryption_configuration" "s3b_encryption" {
   bucket = aws_s3_bucket.bucket.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 
+}
+
+resource "aws_s3_bucket_public_access_block" "s3_block" {
+  bucket              = aws_s3_bucket.bucket.id
   block_public_acls   = true
   block_public_policy = true
 }
@@ -225,20 +244,53 @@ resource "aws_db_parameter_group" "mysql_8" {
   }
 
   parameter {
-    name = "performance_schema"
-    value = "1"
+    name         = "performance_schema"
+    value        = "1"
     apply_method = "pending-reboot"
   }
 }
 
 resource "aws_db_subnet_group" "db_subnet_group" {
-  depends_on = [aws_subnet.subnet]
+  depends_on = [aws_subnet.myPrivateSubnet]
   name       = "main"
-  subnet_ids = [element([for k, v in aws_subnet.myPrivateSubnet : v.id], 1), element([for k, v in aws_subnet.myPrivateSubnet : v.id], 2)]
+  subnet_ids = aws_subnet.myPrivateSubnet.*.id
 
   tags = {
     Name = "DB subnet group"
   }
+}
+
+resource "aws_iam_policy" "policy" {
+  name        = "WebAppS3"
+  description = "policy for s3"
+
+  policy = jsonencode({
+    "Version" : "2012-10-17"
+    "Statement" : [
+      {
+        "Action" : ["s3:DeleteObject", "s3:PutObject", "s3:GetObject", "s3:ListAllMyBuckets"]
+        "Effect" : "Allow"
+        "Resource" : ["arn:aws:s3:::${aws_s3_bucket.bucket.bucket}",
+        "arn:aws:s3:::${aws_s3_bucket.bucket.bucket}/*"]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "ec2-role" {
+  name = "EC2-CSYE6225"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
 }
 
 resource "aws_db_instance" "db_instance" {
@@ -260,54 +312,19 @@ resource "aws_db_instance" "db_instance" {
   skip_final_snapshot    = true
 }
 
-
-resource "aws_iam_policy" "policy" {
-  name        = "WebAppS3"
-  description = "policy for s3"
-
-  policy = jsonencode({
-    "Version" : "2012-10-17"
-    "Statement" : [
-      {
-        "Action" : ["s3:DeleteObject", "s3:PutObject", "s3:GetObject"]
-        "Effect" : "Allow"
-        "Resource" : ["arn:aws:s3:::${aws_s3_bucket.bucket.bucket}", "arn:aws:s3:::${aws_s3_bucket.bucket.bucket}/*"]
-      }
-    ]
-  })
-}
-
-
 resource "aws_iam_policy_attachment" "web-app-s3-attach" {
   name       = "gh-upload-to-s3-attachment"
-  roles      = [data.aws_iam_role.cdes_role.name]
+  roles      = [aws_iam_role.ec2-role.name]
   policy_arn = aws_iam_policy.policy.arn
 }
 
-resource "aws_iam_role" "iam_role" {
-  name                = "EC2-CSYE6225"
-  managed_policy_arns = [aws_iam_policy.policy.arn]
-  assume_role_policy  = <<EOF
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Action": "sts:AssumeRole",
-      "Principal": {
-        "Service": "ec2.amazonaws.com"
-      },
-     "Effect": "Allow",        
-     "Sid": ""
-    }
-  ]
-}
-EOF
-}
+
 
 resource "aws_iam_instance_profile" "iam_profile" {
   name = "iam_profile"
-  role = aws_iam_role.iam_role.name
+  role = aws_iam_role.ec2-role.name
 }
+
 
 
 output "ec2instance" {
