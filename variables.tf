@@ -33,13 +33,13 @@ variable "mysql_db_ver" {
 }
 variable "db_name" {
   type    = string
-  default = "csyedb"
+  default = "csye6225"
 }
 variable "db_username" {
   type    = string
-  default = "csyeroot"
+  default = "csye6225"
 }
 variable "db_pwd" {
   type    = string
-  default = "CSYEroot@12345"
+  default = "CSYEroot*12345"
 }

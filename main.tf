@@ -143,20 +143,20 @@ resource "aws_instance" "my_ami" {
   user_data = <<EOF
 #!/bin/bash
 cd /home/ec2-user || return
-touch application.properties
-echo "aws.region=${var.aws_region}" >> application.properties
-echo "aws.s3.bucket=${aws_s3_bucket.bucket.bucket}" >> application.properties
+touch custom.properties
+echo "aws.region=${var.aws_region}" >> custom.properties
+echo "aws.s3.bucket=${aws_s3_bucket.s3b.bucket}" >> custom.properties
 
-echo "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver" >> application.properties
-echo "spring.datasource.jdbc-url=jdbc:mysql://${aws_db_instance.db_instance.endpoint}/${aws_db_instance.db_instance.db_name}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> application.properties
-echo "spring.datasource.username=${aws_db_instance.db_instance.username}" >> application.properties
-echo "spring.datasource.password=${aws_db_instance.db_instance.password}" >> application.properties
+echo "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver" >> custom.properties
+echo "spring.datasource.url=jdbc:mysql://${aws_db_instance.db_instance.endpoint}:3306/${aws_db_instance.db_instance.db_name}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> custom.properties
+echo "spring.datasource.username=${aws_db_instance.db_instance.username}" >> custom.properties
+echo "spring.datasource.password=${aws_db_instance.db_instance.password}" >> custom.properties
 
-echo "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect" >> application.properties
-echo "spring.jpa.database=mysql" >> application.properties
-echo "spring.jpa.show-sql=true" >> application.properties
-echo "spring.jpa.hibernate.ddl-auto=update" >> application.properties
-echo "server.port=8082" >> application.properties
+echo "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect" >> custom.properties
+echo "spring.jpa.database=mysql" >> custom.properties
+echo "spring.jpa.show-sql=true" >> custom.properties
+echo "spring.jpa.hibernate.ddl-auto=update" >> custom.properties
+echo "server.port=8082" >> custom.properties
   EOF
 
   tags = {
@@ -178,30 +178,37 @@ resource "aws_security_group" "db_security_group" {
     protocol        = var.wsg_protocol
     security_groups = [aws_security_group.application.id]
   }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [var.vpc_cidr_block]
+  }
   tags = {
     Name = "database"
   }
 }
 
-resource "random_string" "random" {
-  length  = 5
-  special = false
+resource "random_pet" "rg" {
+  keepers = {
+    # Generate a new pet name each time we switch to a new profile
+    random_name = var.aws_profile
+  }
 }
-
 // Create s3 bucket
-resource "aws_s3_bucket" "bucket" {
-  bucket        = "${random_string.random.result}-s3-udaykk-${var.name_prefix}"
+resource "aws_s3_bucket" "s3b" {
+  bucket        = random_pet.rg.id
   force_destroy = true
   tags = {
-    Name = "${random_string.random.id}"
+    Name = "${random_pet.rg.id}"
   }
 }
 resource "aws_s3_bucket_acl" "s3b_acl" {
-  bucket = aws_s3_bucket.bucket.id
+  bucket = aws_s3_bucket.s3b.id
   acl    = "private"
 }
 resource "aws_s3_bucket_lifecycle_configuration" "s3b_lifecycle" {
-  bucket = aws_s3_bucket.bucket.id
+  bucket = aws_s3_bucket.s3b.id
   rule {
     id     = "rule-1"
     status = "Enabled"
@@ -214,7 +221,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "s3b_lifecycle" {
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "s3b_encryption" {
-  bucket = aws_s3_bucket.bucket.id
+  bucket = aws_s3_bucket.s3b.id
   rule {
     apply_server_side_encryption_by_default {
       sse_algorithm = "AES256"
@@ -224,7 +231,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "s3b_encryption" {
 }
 
 resource "aws_s3_bucket_public_access_block" "s3_block" {
-  bucket              = aws_s3_bucket.bucket.id
+  bucket              = aws_s3_bucket.s3b.id
   block_public_acls   = true
   block_public_policy = true
 }
@@ -270,8 +277,8 @@ resource "aws_iam_policy" "policy" {
       {
         "Action" : ["s3:DeleteObject", "s3:PutObject", "s3:GetObject", "s3:ListAllMyBuckets"]
         "Effect" : "Allow"
-        "Resource" : ["arn:aws:s3:::${aws_s3_bucket.bucket.bucket}",
-        "arn:aws:s3:::${aws_s3_bucket.bucket.bucket}/*"]
+        "Resource" : ["arn:aws:s3:::${aws_s3_bucket.s3b.bucket}",
+        "arn:aws:s3:::${aws_s3_bucket.s3b.bucket}/*"]
       }
     ]
   })
@@ -294,15 +301,14 @@ resource "aws_iam_role" "ec2-role" {
 }
 
 resource "aws_db_instance" "db_instance" {
-  identifier = var.db_name
-
+  identifier        = var.db_name
   allocated_storage = 10
   engine            = "mysql"
   engine_version    = var.mysql_db_ver
   multi_az          = false
 
   instance_class         = "db.t3.micro"
-  name                   = var.db_name
+  db_name                = var.db_name
   username               = var.db_username
   password               = var.db_pwd
   publicly_accessible    = false
