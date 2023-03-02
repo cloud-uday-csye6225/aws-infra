@@ -139,24 +139,23 @@ resource "aws_instance" "my_ami" {
     volume_type           = "gp2"
   }
   iam_instance_profile = aws_iam_instance_profile.iam_profile.name
-
-  user_data = <<EOF
+  user_data            = <<EOF
 #!/bin/bash
 cd /home/ec2-user || return
-touch custom.properties
-echo "aws.region=${var.aws_region}" >> custom.properties
-echo "aws.s3.bucket=${aws_s3_bucket.s3b.bucket}" >> custom.properties
-
-echo "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver" >> custom.properties
-echo "spring.datasource.url=jdbc:mysql://${aws_db_instance.db_instance.endpoint}:3306/${aws_db_instance.db_instance.db_name}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> custom.properties
-echo "spring.datasource.username=${aws_db_instance.db_instance.username}" >> custom.properties
-echo "spring.datasource.password=${aws_db_instance.db_instance.password}" >> custom.properties
-
-echo "spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MySQL8Dialect" >> custom.properties
-echo "spring.jpa.database=mysql" >> custom.properties
-echo "spring.jpa.show-sql=true" >> custom.properties
-echo "spring.jpa.hibernate.ddl-auto=update" >> custom.properties
-echo "server.port=8082" >> custom.properties
+touch application.properties
+echo "aws.region=${var.aws_region}" >> application.properties
+echo "aws.s3.bucket=${aws_s3_bucket.s3b.bucket}" >> application.properties
+echo "server.port=8082" >> application.properties
+echo "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver" >> application.properties
+echo "spring.datasource.url=jdbc:mysql://${aws_db_instance.db_instance.endpoint}/${aws_db_instance.db_instance.db_name}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> application.properties
+echo "spring.datasource.username=${aws_db_instance.db_instance.username}" >> application.properties
+echo "spring.datasource.password=${aws_db_instance.db_instance.password}" >> application.properties
+echo "spring.jpa.properties.hibernate.show_sql=true" >> application.properties
+echo "spring.jpa.properties.hibernate.use_sql_comments=true" >> application.properties
+echo "spring.jpa.properties.hibernate.format_sql=true" >> application.properties
+echo "logging.level.org.hibernate.type=trace" >> application.properties
+echo "#spring.jpa.properties.hibernate.dialect = org.hibernate.dialect.MySQL5InnoDBDialect" >> application.properties
+echo "spring.jpa.hibernate.ddl-auto=update" >> application.properties
   EOF
 
   tags = {
