@@ -330,7 +330,18 @@ resource "aws_iam_instance_profile" "iam_profile" {
   role = aws_iam_role.ec2-role.name
 }
 
-
+data "aws_route53_zone" "hosted_zone" {
+  name         = var.domain_name
+  private_zone = false
+}
+# Create Route53 record 
+resource "aws_route53_record" "hosted_zone_record" {
+  zone_id = data.aws_route53_zone.hosted_zone.zone_id
+  name    = "${var.sub_domain_name}.${var.domain_name}"
+  type    = "A"
+  ttl     = "60"
+  records = [aws_instance.my_ami.public_ip]
+}
 
 output "ec2instance" {
   value = aws_instance.my_ami.id
