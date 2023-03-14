@@ -43,3 +43,13 @@ variable "db_pwd" {
   type    = string
   default = "CSYEroot*12345"
 }
+variable "domain_name" {
+  default     = "udaykk.me"
+  description = "Hosted Zone"
+  type        = string
+}
+variable "sub_domain_name" {
+  default     = "webapp"
+  description = "Hosted Zone"
+  type        = string
+}

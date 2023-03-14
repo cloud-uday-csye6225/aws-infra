@@ -1,5 +1,6 @@
 aws_region     = "us-east-1"
 aws_profile    = "dev"
-name_prefix    = "ukk-2"
+name_prefix    = "ukk-223"
 vpc_cidr_block = "10.0.0.0/16"
 ami_id         = "ami-0928f920e9034beff"
+domain_name    = "dev.udaykk.me"
