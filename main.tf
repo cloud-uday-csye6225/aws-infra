@@ -230,9 +230,11 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "s3b_encryption" {
 }
 
 resource "aws_s3_bucket_public_access_block" "s3_block" {
-  bucket              = aws_s3_bucket.s3b.id
-  block_public_acls   = true
-  block_public_policy = true
+  bucket                  = aws_s3_bucket.s3b.id
+  block_public_acls       = true
+  block_public_policy     = true
+  restrict_public_buckets = true
+  ignore_public_acls      = true
 }
 
 resource "aws_db_parameter_group" "mysql_8" {
