@@ -156,6 +156,15 @@ echo "spring.jpa.properties.hibernate.format_sql=true" >> application.properties
 echo "logging.level.org.hibernate.type=trace" >> application.properties
 echo "#spring.jpa.properties.hibernate.dialect = org.hibernate.dialect.MySQL5InnoDBDialect" >> application.properties
 echo "spring.jpa.hibernate.ddl-auto=update" >> application.properties
+echo "logging.file.path=/home/ec2-user" >> application.properties
+echo "logging.file.name=/home/ec2-user/csye6225logs.log" >> application.properties
+echo "publish.metrics=true" >> application.properties
+echo "metrics.statsd.host=localhost" >> application.properties
+echo "metrics.statsd.port=8125" >> application.properties
+echo "metrics.prefix=webapp" >> application.properties
+sudo cp /tmp/config.json /opt/config.json
+sudo chmod 774 /opt/config.json
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/config.json
   EOF
 
   tags = {
@@ -344,6 +353,12 @@ resource "aws_route53_record" "hosted_zone_record" {
   type    = "A"
   ttl     = "60"
   records = [aws_instance.my_ami.public_ip]
+}
+
+resource "aws_iam_policy_attachment" "web-app-atach-cloudwatch" {
+  name       = "attach-cloudwatch-server-policy-ec2"
+  roles      = [aws_iam_role.ec2-role.name]
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
 output "ec2instance" {
