@@ -46,3 +46,13 @@ variable "domain_name" {
   description = "Hosted Zone"
   type        = string
 }
+
+variable "cpu_upper_limit" {
+  default = "5"
+  type    = string
+}
+
+variable "cpu_lower_limit" {
+  default = "3"
+  type    = string
+}

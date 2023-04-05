@@ -122,56 +122,7 @@ resource "aws_security_group" "application" {
   }
 }
 
-resource "aws_instance" "my_ami" {
-  ami                         = var.ami_id
-  instance_type               = var.instance_type
-  associate_public_ip_address = true
-  subnet_id                   = aws_subnet.myPublicSubnet[1].id
-  key_name                    = var.key_name
-  disable_api_termination     = false
 
-  vpc_security_group_ids = [
-    aws_security_group.application.id
-  ]
-  root_block_device {
-    delete_on_termination = true
-    volume_size           = 50
-    volume_type           = "gp2"
-  }
-  iam_instance_profile = aws_iam_instance_profile.iam_profile.name
-  user_data            = <<EOF
-#!/bin/bash
-cd /home/ec2-user || return
-touch application.properties
-echo "aws.region=${var.aws_region}" >> application.properties
-echo "aws.s3.bucket=${aws_s3_bucket.s3b.bucket}" >> application.properties
-echo "server.port=8082" >> application.properties
-echo "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver" >> application.properties
-echo "spring.datasource.url=jdbc:mysql://${aws_db_instance.db_instance.endpoint}/${aws_db_instance.db_instance.db_name}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> application.properties
-echo "spring.datasource.username=${aws_db_instance.db_instance.username}" >> application.properties
-echo "spring.datasource.password=${aws_db_instance.db_instance.password}" >> application.properties
-echo "spring.jpa.properties.hibernate.show_sql=true" >> application.properties
-echo "spring.jpa.properties.hibernate.use_sql_comments=true" >> application.properties
-echo "spring.jpa.properties.hibernate.format_sql=true" >> application.properties
-echo "logging.level.org.hibernate.type=trace" >> application.properties
-echo "#spring.jpa.properties.hibernate.dialect = org.hibernate.dialect.MySQL5InnoDBDialect" >> application.properties
-echo "spring.jpa.hibernate.ddl-auto=update" >> application.properties
-echo "logging.file.path=/home/ec2-user" >> application.properties
-echo "logging.file.name=/home/ec2-user/csye6225logs.log" >> application.properties
-echo "publish.metrics=true" >> application.properties
-echo "metrics.statsd.host=localhost" >> application.properties
-echo "metrics.statsd.port=8125" >> application.properties
-echo "metrics.prefix=webapp" >> application.properties
-sudo cp /tmp/config.json /opt/config.json
-sudo chmod 774 /opt/config.json
-sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/config.json
-  EOF
-
-  tags = {
-    Name = "my-${var.name_prefix}-ami"
-  }
-
-}
 
 //create database security group link to webapp
 resource "aws_security_group" "db_security_group" {
@@ -346,13 +297,15 @@ data "aws_route53_zone" "hosted_zone" {
   private_zone = false
 }
 
-# Create Route53 record 
-resource "aws_route53_record" "hosted_zone_record" {
+resource "aws_route53_record" "www" {
   zone_id = data.aws_route53_zone.hosted_zone.zone_id
-  name    = "${var.aws_profile}.${var.domain_name}"
+  name    = data.aws_route53_zone.hosted_zone.name
   type    = "A"
-  ttl     = "60"
-  records = [aws_instance.my_ami.public_ip]
+  alias {
+    name                   = aws_lb.lb.dns_name
+    zone_id                = aws_lb.lb.zone_id
+    evaluate_target_health = true
+  }
 }
 
 resource "aws_iam_policy_attachment" "web-app-atach-cloudwatch" {
@@ -361,6 +314,216 @@ resource "aws_iam_policy_attachment" "web-app-atach-cloudwatch" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy"
 }
 
-output "ec2instance" {
-  value = aws_instance.my_ami.id
+resource "aws_security_group" "load_balancer" {
+  name        = "load_balancer"
+  description = "Security group for the load balancer"
+  vpc_id      = aws_vpc.myvpc.id
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = [var.security_cidr]
+  }
+  ingress {
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [var.security_cidr]
+  }
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = [var.security_cidr]
+  }
+
+  tags = {
+    Name = "load balancer"
+  }
+}
+
+data "template_file" "user_data" {
+
+  template = <<EOF
+#!/bin/bash
+cd /home/ec2-user || return
+touch application.properties
+echo "aws.region=${var.aws_region}" >> application.properties
+echo "aws.s3.bucket=${aws_s3_bucket.s3b.bucket}" >> application.properties
+echo "server.port=8082" >> application.properties
+echo "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver" >> application.properties
+echo "spring.datasource.url=jdbc:mysql://${aws_db_instance.db_instance.endpoint}/${aws_db_instance.db_instance.db_name}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> application.properties
+echo "spring.datasource.username=${aws_db_instance.db_instance.username}" >> application.properties
+echo "spring.datasource.password=${aws_db_instance.db_instance.password}" >> application.properties
+echo "spring.jpa.properties.hibernate.show_sql=true" >> application.properties
+echo "spring.jpa.properties.hibernate.use_sql_comments=true" >> application.properties
+echo "spring.jpa.properties.hibernate.format_sql=true" >> application.properties
+echo "logging.level.org.hibernate.type=trace" >> application.properties
+echo "#spring.jpa.properties.hibernate.dialect = org.hibernate.dialect.MySQL5InnoDBDialect" >> application.properties
+echo "spring.jpa.hibernate.ddl-auto=update" >> application.properties
+echo "logging.file.path=/home/ec2-user" >> application.properties
+echo "logging.file.name=/home/ec2-user/csye6225logs.log" >> application.properties
+echo "publish.metrics=true" >> application.properties
+echo "metrics.statsd.host=localhost" >> application.properties
+echo "metrics.statsd.port=8125" >> application.properties
+echo "metrics.prefix=webapp" >> application.properties
+sudo cp /tmp/config.json /opt/config.json
+sudo chmod 774 /opt/config.json
+sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/config.json
+  EOF
+
+}
+
+
+resource "aws_launch_template" "asg_launch_config" {
+  name = "asg_launch_config"
+  block_device_mappings {
+    device_name = "/dev/sdf"
+    ebs {
+      delete_on_termination = true
+      volume_size           = 50
+      volume_type           = "gp2"
+    }
+  }
+  disable_api_termination = false
+  iam_instance_profile {
+    name = aws_iam_instance_profile.iam_profile.name
+  }
+  image_id      = var.ami_id
+  instance_type = var.instance_type
+  key_name      = var.key_name
+  monitoring {
+    enabled = true
+  }
+  network_interfaces {
+    associate_public_ip_address = true
+    subnet_id                   = aws_subnet.myPublicSubnet[1].id
+    security_groups             = [aws_security_group.application.id]
+    # vpc_security_group_ids = [aws_security_group.application.id]
+  }
+  # placement {
+  #    availability_zone = aws_subnet.public[1].id
+  # }
+  # vpc_security_group_ids = [aws_security_group.application.id]
+  tag_specifications {
+    resource_type = "instance"
+
+    tags = {
+      Name = "asg_launch_config"
+    }
+  }
+  user_data = base64encode(data.template_file.user_data.rendered)
+
+}
+
+resource "aws_autoscaling_group" "autoscaling_group" {
+  name                = "autoscaling_group"
+  desired_capacity    = 1
+  max_size            = 3
+  min_size            = 1
+  default_cooldown    = 60
+  vpc_zone_identifier = [for k, v in aws_subnet.myPublicSubnet : v.id]
+  target_group_arns   = [aws_lb_target_group.alb_tg.arn]
+
+  tag {
+    key                 = "Application"
+    value               = "WebApp"
+    propagate_at_launch = true
+  }
+
+  launch_template {
+    id      = aws_launch_template.asg_launch_config.id
+    version = "$Latest"
+  }
+}
+resource "aws_autoscaling_policy" "scale_up" {
+  name                   = "scale_up"
+  scaling_adjustment     = 1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown               = 10
+  autoscaling_group_name = aws_autoscaling_group.autoscaling_group.name
+}
+
+resource "aws_cloudwatch_metric_alarm" "upper_limit" {
+  alarm_name          = "upper_limit"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "60"
+  statistic           = "Average"
+  threshold           = var.cpu_upper_limit
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.autoscaling_group.name
+  }
+
+  alarm_description = "Checks if the ec2 instance crosses the defined upper limit and triggers a scale up policy"
+  alarm_actions     = [aws_autoscaling_policy.scale_up.arn]
+}
+
+resource "aws_autoscaling_policy" "scale_down" {
+  name                   = "scale_down"
+  scaling_adjustment     = -1
+  adjustment_type        = "ChangeInCapacity"
+  cooldown               = 10
+  autoscaling_group_name = aws_autoscaling_group.autoscaling_group.name
+}
+
+resource "aws_cloudwatch_metric_alarm" "lower_limit" {
+  alarm_name          = "lower_limit"
+  comparison_operator = "LessThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = "60"
+  statistic           = "Average"
+  threshold           = var.cpu_lower_limit
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.autoscaling_group.name
+  }
+
+  alarm_description = "Checks if the ec2 instance falls below the defined lower limit and triggers a scale down policy"
+  alarm_actions     = [aws_autoscaling_policy.scale_down.arn]
+}
+
+resource "aws_lb" "lb" {
+  name               = "webapp-lb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.load_balancer.id]
+  subnets            = [for subnet in aws_subnet.myPublicSubnet : subnet.id]
+
+  enable_deletion_protection = false
+
+  tags = {
+    application = "WebApp"
+  }
+}
+
+resource "aws_lb_target_group" "alb_tg" {
+  name        = "alb-tg"
+  target_type = "instance"
+  port        = 8082
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.myvpc.id
+  health_check {
+    path                = "/healthz"
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+    timeout             = 5
+    interval            = 15
+    matcher             = "200"
+  }
+}
+
+resource "aws_lb_listener" "lb_listener" {
+  load_balancer_arn = aws_lb.lb.arn
+  port              = "80"
+  protocol          = "HTTP"
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.alb_tg.arn
+  }
 }
