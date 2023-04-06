@@ -78,19 +78,19 @@ resource "aws_security_group" "application" {
   description = "Security group for the Webapp application"
   vpc_id      = aws_vpc.myvpc.id
   ingress {
-    description = "TCP Access"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.security_cidr]
+    description     = "TCP Access"
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.load_balancer.id]
   }
 
   ingress {
-    description = "TCP Access"
-    from_port   = 8082
-    to_port     = 8082
-    protocol    = var.wsg_protocol
-    cidr_blocks = [var.security_cidr]
+    description     = "TCP Access"
+    from_port       = 8082
+    to_port         = 8082
+    protocol        = var.wsg_protocol
+    security_groups = [aws_security_group.load_balancer.id]
   }
 
   egress {
