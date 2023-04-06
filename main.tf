@@ -87,22 +87,6 @@ resource "aws_security_group" "application" {
 
   ingress {
     description = "TCP Access"
-    from_port   = 80
-    to_port     = 80
-    protocol    = var.wsg_protocol
-    cidr_blocks = [var.security_cidr]
-  }
-
-  ingress {
-    description = "TCP Access"
-    from_port   = 443
-    to_port     = 443
-    protocol    = var.wsg_protocol
-    cidr_blocks = [var.security_cidr]
-  }
-
-  ingress {
-    description = "TCP Access"
     from_port   = 8082
     to_port     = 8082
     protocol    = var.wsg_protocol
