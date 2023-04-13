@@ -56,3 +56,9 @@ variable "cpu_lower_limit" {
   default = "3"
   type    = string
 }
+
+variable "accountid" {
+}
+
+variable "certificateId" {
+}

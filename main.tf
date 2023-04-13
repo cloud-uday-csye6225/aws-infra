@@ -253,6 +253,8 @@ resource "aws_db_instance" "db_instance" {
   multi_az          = false
 
   instance_class         = "db.t3.micro"
+  storage_encrypted      = true
+  kms_key_id             = aws_kms_key.rds_kmskey.arn
   db_name                = var.db_name
   username               = var.db_username
   password               = var.db_pwd
@@ -303,12 +305,6 @@ resource "aws_security_group" "load_balancer" {
   description = "Security group for the load balancer"
   vpc_id      = aws_vpc.myvpc.id
   ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = [var.security_cidr]
-  }
-  ingress {
     from_port   = 443
     to_port     = 443
     protocol    = "tcp"
@@ -336,7 +332,7 @@ echo "aws.region=${var.aws_region}" >> application.properties
 echo "aws.s3.bucket=${aws_s3_bucket.s3b.bucket}" >> application.properties
 echo "server.port=8082" >> application.properties
 echo "spring.datasource.driver-class-name=com.mysql.cj.jdbc.Driver" >> application.properties
-echo "spring.datasource.url=jdbc:mysql://${aws_db_instance.db_instance.endpoint}/${aws_db_instance.db_instance.db_name}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> application.properties
+echo "spring.datasource.url=jdbc:mysql://${aws_db_instance.db_instance.endpoint}/${aws_db_instance.db_instance.db_name}?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true&serverTimezone=UTC" >> application.properties
 echo "spring.datasource.username=${aws_db_instance.db_instance.username}" >> application.properties
 echo "spring.datasource.password=${aws_db_instance.db_instance.password}" >> application.properties
 echo "spring.jpa.properties.hibernate.show_sql=true" >> application.properties
@@ -367,6 +363,8 @@ resource "aws_launch_template" "asg_launch_config" {
       delete_on_termination = true
       volume_size           = 50
       volume_type           = "gp2"
+      encrypted             = true
+      kms_key_id            = aws_kms_key.ec2_ebs_key.arn
     }
   }
   disable_api_termination = false
@@ -383,12 +381,7 @@ resource "aws_launch_template" "asg_launch_config" {
     associate_public_ip_address = true
     subnet_id                   = aws_subnet.myPublicSubnet[1].id
     security_groups             = [aws_security_group.application.id]
-    # vpc_security_group_ids = [aws_security_group.application.id]
   }
-  # placement {
-  #    availability_zone = aws_subnet.public[1].id
-  # }
-  # vpc_security_group_ids = [aws_security_group.application.id]
   tag_specifications {
     resource_type = "instance"
 
@@ -504,10 +497,120 @@ resource "aws_lb_target_group" "alb_tg" {
 
 resource "aws_lb_listener" "lb_listener" {
   load_balancer_arn = aws_lb.lb.arn
-  port              = "80"
-  protocol          = "HTTP"
+  port              = "443"
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-2016-08"
+  certificate_arn   = "arn:aws:acm:us-east-1:${var.accountid}:certificate/${var.certificateId}"
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.alb_tg.arn
   }
 }
+
+resource "aws_kms_key" "rds_kmskey" {
+  description             = "rds key"
+  deletion_window_in_days = 10
+  policy = jsonencode({
+    Id = "key-consolepolicy-1"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions",
+        Effect = "Allow",
+        Principal = {
+          "AWS" : "arn:aws:iam::${var.accountid}:root"
+        },
+        Action   = "kms:*",
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow use of the key",
+        Effect = "Allow",
+        Principal = {
+          "AWS" : "arn:aws:iam::${var.accountid}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+        },
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ],
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow attachment of persistent resources",
+        Effect = "Allow",
+        Principal = {
+          "AWS" : "arn:aws:iam::${var.accountid}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+        },
+        Action = [
+          "kms:CreateGrant",
+          "kms:ListGrants",
+          "kms:RevokeGrant"
+        ],
+        Resource = "*",
+        Condition = {
+          Bool = {
+            "kms:GrantIsForAWSResource" : "true"
+          }
+        }
+      }
+    ]
+    Version = "2012-10-17"
+  })
+}
+
+
+resource "aws_kms_key" "ec2_ebs_key" {
+  description             = "ebs key"
+  deletion_window_in_days = 10
+  policy = jsonencode({
+    Id = "key-consolepolicy-1"
+    Statement = [
+      {
+        Sid    = "Enable IAM User Permissions",
+        Effect = "Allow",
+        Principal = {
+          "AWS" : "arn:aws:iam::${var.accountid}:root"
+        },
+        Action   = "kms:*",
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow use of the key",
+        Effect = "Allow",
+        Principal = {
+          "AWS" : "arn:aws:iam::${var.accountid}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+        },
+        Action = [
+          "kms:Encrypt",
+          "kms:Decrypt",
+          "kms:ReEncrypt*",
+          "kms:GenerateDataKey*",
+          "kms:DescribeKey"
+        ],
+        Resource = "*"
+      },
+      {
+        Sid    = "Allow attachment of persistent resources",
+        Effect = "Allow",
+        Principal = {
+          "AWS" : "arn:aws:iam::${var.accountid}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling"
+        },
+        Action = [
+          "kms:CreateGrant",
+          "kms:ListGrants",
+          "kms:RevokeGrant"
+        ],
+        Resource = "*",
+        Condition = {
+          Bool = {
+            "kms:GrantIsForAWSResource" : "true"
+          }
+        }
+      }
+    ]
+    Version = "2012-10-17"
+  })
+}
+
